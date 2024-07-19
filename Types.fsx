@@ -1,4 +1,5 @@
-type Undefined = exn
+#load "Common.fsx"
+open Common
 
 module DefiningFunctions =
     let add1 x = x + 1
