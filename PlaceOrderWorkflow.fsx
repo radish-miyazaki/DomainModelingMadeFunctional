@@ -45,6 +45,7 @@ module PlaceOrderWorkflow =
     // https://scrapbox.io/radish-miyazaki/%E6%AE%8B%E3%82%8A%E3%81%AE%E3%82%B9%E3%83%86%E3%83%83%E3%83%97%E3%81%AE%E5%AE%9F%E8%A3%85
     // ----------------------------------------
 
+    // --------------- ヘルパ関数 ---------------
     let predicateToPassthru errorMsg f x = if f x then x else failwith errorMsg
 
     let toCustomerInfo (customer: DomainApi.UnvalidatedCustomerInfo) =
