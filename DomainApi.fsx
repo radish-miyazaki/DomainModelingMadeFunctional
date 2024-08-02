@@ -1,45 +1,121 @@
-#load "Common.fsx"
+#load "SimpleTypes.fsx"
 
-open Common
 open System
+open SimpleTypes
 
 // ----------------------------------------
-// 入力データ
-// https://scrapbox.io/radish-miyazaki/%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%95%E3%83%AD%E3%83%BC%E3%81%AE%E5%85%A5%E5%8A%9B#669d007175d04f00000e97f8
+// 呼び出し元に公開されるパブリックな型
+// https://scrapbox.io/radish-miyazaki/Modeling_Workflows_as_Pipelines
 // ----------------------------------------
-type UnvalidatedOrder =
-    { OrderId: string
-      CustomerInfo: UnvalidatedCustomer
-      ShippingAddress: UnvalidatedAddress }
+module DomainApi =
+    // ----------------------------------------
+    // 入力データ
+    // ----------------------------------------
+    type UnvalidatedCustomerInfo =
+        { FirstName: string
+          LastName: string
+          EmailAddress: string }
 
-and UnvalidatedCustomer = { Name: string; Email: string }
-and UnvalidatedAddress = Undefined
+    type UnvalidatedAddress =
+        { AddressLine1: string
+          AddressLine2: string
+          AddressLine3: string
+          AddressLine4: string
+          City: string
+          ZipCode: string }
 
-// ----------------------------------------
-// 入力コマンド
-// https://scrapbox.io/radish-miyazaki/%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%95%E3%83%AD%E3%83%BC%E3%81%AE%E5%85%A5%E5%8A%9B#669d02b475d04f00000e9815
-// ----------------------------------------
-type Command<'data> =
-    { Data: 'data
-      TimeStamp: DateTime
-      UserId: string }
+    type UnvalidatedOrderLine =
+        { OrderLineId: string
+          ProductCode: string
+          Quantity: float }
 
-type PlacedOrderCommand = Command<UnvalidatedOrder>
+    type UnvalidatedOrder =
+        { OrderId: string
+          CustomerInfo: UnvalidatedCustomerInfo
+          ShippingAddress: UnvalidatedAddress
+          BillingAddress: UnvalidatedAddress
+          Lines: UnvalidatedOrderLine list }
 
-// ----------------------------------------
-// パブリック API
-// https://scrapbox.io/radish-miyazaki/%E5%9E%8B%E3%82%92%E4%BD%BF%E3%81%A3%E3%81%9F%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%95%E3%83%AD%E3%83%BC%E3%81%AE%E5%90%84%E3%82%B9%E3%83%86%E3%83%83%E3%83%97%E3%81%AE%E3%83%A2%E3%83%87%E3%83%AA%E3%83%B3%E3%82%B0#66a0870875d04f000015259e
-// https://scrapbox.io/radish-miyazaki/%E4%BE%9D%E5%AD%98%E9%96%A2%E4%BF%82%E3%82%92%E3%83%91%E3%83%A9%E3%83%A1%E3%83%BC%E3%82%BF%E3%81%AB%E5%90%AB%E3%82%81%E3%82%8B%E3%81%8B#66a2ffc275d04f0000d651f1
-// ----------------------------------------
-type OrderPlaced = Undefined
-type BillableOrderPlaced = Undefined
-type OrderAcknowledgmentSent = Undefined
+    // ----------------------------------------
+    // 入力コマンド
+    // ----------------------------------------
+    type Command<'data> =
+        { Data: 'data
+          TimeStamp: DateTime
+          UserId: string }
 
-type PlacedOrderEvent =
-    | OrderPlaced of OrderPlaced
-    | BillableOrderPlaced of BillableOrderPlaced
-    | OrderAcknowledgmentSent of OrderAcknowledgmentSent
+    type PlacedOrderCommand = Command<UnvalidatedOrder>
 
-type PlaceOrderError = Undefined
+    // ----------------------------------------
+    // パブリック API
+    // ----------------------------------------
+    type Address =
+        { AddressLine1: SimpleTypes.String50
+          AddressLine2: SimpleTypes.String50 option
+          AddressLine3: SimpleTypes.String50 option
+          AddressLine4: SimpleTypes.String50 option
+          City: SimpleTypes.String50
+          ZipCode: SimpleTypes.ZipCode }
 
-type PlacedOrderWorkflow = PlacedOrderCommand -> AsyncResult<PlacedOrderEvent list, PlaceOrderError>
+    type PersonalName =
+        { FirstName: SimpleTypes.String50
+          LastName: SimpleTypes.String50 }
+
+    type CustomerInfo =
+        { Name: PersonalName
+          EmailAddress: SimpleTypes.EmailAddress }
+
+    type PricedOrderLine =
+        { OrderLineId: SimpleTypes.OrderId
+          ProductCode: SimpleTypes.ProductCode
+          Quantity: SimpleTypes.OrderQuantity
+          LinePrice: SimpleTypes.Price }
+
+    type PricedOrder =
+        { OrderId: SimpleTypes.OrderId
+          CustomerInfo: CustomerInfo
+          ShippingAddress: Address
+          BillingAddress: Address
+          AmountToBill: SimpleTypes.BillingAmount
+          Lines: PricedOrderLine list }
+
+    type OrderPlaced = PricedOrder
+
+    type BillableOrderPlaced =
+        { OrderId: SimpleTypes.OrderId
+          BillingAddress: Address
+          AmountToBill: SimpleTypes.BillingAmount }
+
+    type OrderAcknowledgmentSent =
+        { EmailAddress: SimpleTypes.EmailAddress
+          Letter: SimpleTypes.HtmlString }
+
+    type PlacedOrderEvent =
+        | OrderPlaced of OrderPlaced
+        | BillableOrderPlaced of BillableOrderPlaced
+        | OrderAcknowledgmentSent of OrderAcknowledgmentSent
+
+    type CheckedAddress = CheckedAddress of UnvalidatedAddress
+
+    type OrderAcknowledgment =
+        { EmailAddress: SimpleTypes.EmailAddress
+          Letter: SimpleTypes.HtmlString }
+
+    type SendResult =
+        | Sent
+        | NotSent
+
+    type CheckProductCodeExists = SimpleTypes.ProductCode -> bool
+    type CheckAddressExists = UnvalidatedAddress -> CheckedAddress
+    type GetProductPrice = SimpleTypes.ProductCode -> SimpleTypes.Price
+    type CreateOrderAcknowledgmentLetter = PricedOrder -> SimpleTypes.HtmlString
+    type SendOrderAcknowledgment = OrderAcknowledgment -> SendResult
+
+    type PlaceOrderWorkflow =
+        CheckProductCodeExists
+            -> CheckAddressExists
+            -> GetProductPrice
+            -> CreateOrderAcknowledgmentLetter
+            -> SendOrderAcknowledgment
+            -> UnvalidatedOrder
+            -> PlacedOrderEvent list

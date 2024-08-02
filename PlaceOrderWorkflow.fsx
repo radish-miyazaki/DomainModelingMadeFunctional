@@ -1,70 +1,165 @@
-#load "DomainApi.fsx"
 #load "Common.fsx"
+#load "DomainApi.fsx"
 
 open Common
-open DomainApi
 
-// ----------------------------------------
-// 注文のライフサイクル
-// https://scrapbox.io/radish-miyazaki/%E7%8A%B6%E6%85%8B%E3%81%AE%E9%9B%86%E5%90%88%E3%81%AB%E3%82%88%E3%82%8B%E6%B3%A8%E6%96%87%E3%81%AE%E3%83%A2%E3%83%87%E3%83%AA%E3%83%B3%E3%82%B0
-// ----------------------------------------
+module PlaceOrderWorkflow =
+    open SimpleTypes
+    open DomainApi
 
-type ProductCode = Undefined
-type Price = Undefined
+    // ----------------------------------------
+    // パート1: 設計
+    // ----------------------------------------
 
-// 検証済みの状態
-type ValidatedOrderLine = Undefined
+    // --------------- 注文の検証 ---------------
+    type ValidatedOrderLine =
+        { OrderLineId: SimpleTypes.OrderLineId
+          ProductCode: SimpleTypes.ProductCode
+          Quantity: SimpleTypes.OrderQuantity }
 
-type ValidatedOrder =
-    { OrderId: OrderId
-      CustomerInfo: CustomerInfo
-      ShippingAddress: Address
-      BillingAddress: Address
-      OrderLine: ValidatedOrderLine list }
+    type ValidatedOrder =
+        { OrderId: SimpleTypes.OrderId
+          CustomerInfo: DomainApi.CustomerInfo
+          ShippingAddress: DomainApi.Address
+          BillingAddress: DomainApi.Address
+          Lines: ValidatedOrderLine list }
 
-and OrderId = Undefined
-and CustomerInfo = Undefined
-and Address = Undefined
+    type ValidateOrder =
+        DomainApi.CheckProductCodeExists -> DomainApi.CheckAddressExists -> DomainApi.UnvalidatedOrder -> ValidatedOrder
 
-// 価格計算済みの状態
-type PricedOrderLine = Undefined
-type PricedOrder = Undefined
+    // --------------- 注文の価格設定 ---------------
+    type PriceOrder = DomainApi.GetProductPrice -> ValidatedOrder -> DomainApi.PricedOrder
 
-// 全状態の結合
-type Oeder =
-    | Unvalidated of UnvalidatedOrder
-    | Validated of ValidatedOrder
-    | Priced of PricedOrder
+    // --------------- 注文の確認 ---------------
+    type AcknowledgeOrder =
+        DomainApi.CreateOrderAcknowledgmentLetter
+            -> DomainApi.SendOrderAcknowledgment
+            -> DomainApi.PricedOrder
+            -> DomainApi.OrderAcknowledgmentSent option
 
+    // --------------- イベントの作成 ---------------
+    type CreateEvents = DomainApi.PricedOrder -> DomainApi.OrderAcknowledgmentSent -> DomainApi.PlacedOrderEvent list
 
-// ----------------------------------------
-// 内部ステップの定義
-// https://scrapbox.io/radish-miyazaki/%E5%9E%8B%E3%82%92%E4%BD%BF%E3%81%A3%E3%81%9F%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%95%E3%83%AD%E3%83%BC%E3%81%AE%E5%90%84%E3%82%B9%E3%83%86%E3%83%83%E3%83%97%E3%81%AE%E3%83%A2%E3%83%87%E3%83%AA%E3%83%B3%E3%82%B0
-// https://scrapbox.io/radish-miyazaki/%E3%82%A8%E3%83%95%E3%82%A7%E3%82%AF%E3%83%88%E3%81%AE%E6%96%87%E6%9B%B8%E5%8C%96
-// ----------------------------------------
+    // ----------------------------------------
+    // パート2: 実装
+    // ----------------------------------------
 
-// ---------- 注文の検証 ----------
+    let predicateToPassthru errorMsg f x = if f x then x else failwith errorMsg
 
-// 注文の検証が使用するサービス
-type CheckProduceCodeExists = ProductCode -> bool
+    let toCustomerInfo (customer: DomainApi.UnvalidatedCustomerInfo) =
+        let firstName = customer.FirstName |> SimpleTypes.String50.create
+        let lastName = customer.LastName |> SimpleTypes.String50.create
+        let emailAddress = customer.EmailAddress |> SimpleTypes.EmailAddress.create
 
-type CheckedAddress = Undefined
-type AddressValidationError = Undefined
-type CheckAddressExists = UnvalidatedAddress -> AsyncResult<CheckedAddress, AddressValidationError>
+        let name: DomainApi.PersonalName =
+            { FirstName = firstName
+              LastName = lastName }
 
-type ValidateOrder =
-    CheckProduceCodeExists
-        -> CheckAddressExists
-        -> UnvalidatedOrder
-        -> AsyncResult<ValidatedOrder, ValidationError list>
+        let customerInfo: DomainApi.CustomerInfo =
+            { Name = name
+              EmailAddress = emailAddress }
 
-and ValidationError = Undefined
+        customerInfo
 
-// ---------- 注文の価格計算 ----------
-type GetProductPrice = ProductCode -> Price
+    let toAddress (checkAddressExists: DomainApi.CheckAddressExists) unvalidatedAddress =
+        let checkedAddress = checkAddressExists unvalidatedAddress
+        let (DomainApi.CheckedAddress checkedAddress) = checkedAddress
 
-type PricingError = Undefined
+        let addressLine1 = checkedAddress.AddressLine1 |> SimpleTypes.String50.create
+        let addressLine2 = checkedAddress.AddressLine2 |> SimpleTypes.String50.createOption
+        let addressLine3 = checkedAddress.AddressLine3 |> SimpleTypes.String50.createOption
+        let addressLine4 = checkedAddress.AddressLine4 |> SimpleTypes.String50.createOption
+        let city = checkedAddress.City |> SimpleTypes.String50.create
+        let zipCode = checkedAddress.ZipCode |> SimpleTypes.ZipCode.create
 
-type PriceOrder = GetProductPrice -> ValidatedOrder -> Result<PricedOrder, PricingError>
+        let address: DomainApi.Address =
+            { AddressLine1 = addressLine1
+              AddressLine2 = addressLine2
+              AddressLine3 = addressLine3
+              AddressLine4 = addressLine4
+              City = city
+              ZipCode = zipCode }
 
-// etc ...
+        address
+
+    let toProductCode (checkProductCodeExists: DomainApi.CheckProductCodeExists) productCode =
+        let checkProduct =
+            let errorMsg = sprintf "Invalid: %A" productCode
+            predicateToPassthru errorMsg checkProductCodeExists
+
+        productCode |> SimpleTypes.ProductCode.create |> checkProduct
+
+    let toOrderQuantity productCode quantity =
+        match productCode with
+        | SimpleTypes.Widget _ ->
+            quantity
+            |> int
+            |> SimpleTypes.UnitQuantity.create
+            |> SimpleTypes.OrderQuantity.Unit
+        | SimpleTypes.Gizmo _ ->
+            quantity
+            |> SimpleTypes.KilogramQuantity.create
+            |> SimpleTypes.OrderQuantity.Kilogram
+
+    let toValidatedOrderLine checkProductCodeExists (unvalidatedOrder: DomainApi.UnvalidatedOrderLine) =
+        let orderLineId = unvalidatedOrder.OrderLineId |> SimpleTypes.OrderLineId.create
+
+        let productCode =
+            unvalidatedOrder.ProductCode |> toProductCode checkProductCodeExists
+
+        let quantity = unvalidatedOrder.Quantity |> toOrderQuantity productCode
+
+        let validatedOrderLine =
+            { OrderLineId = orderLineId
+              ProductCode = productCode
+              Quantity = quantity }
+
+        validatedOrderLine
+
+    // --------------- 注文の検証 ---------------
+    let validateOrder: ValidateOrder =
+        fun checkProductCodeExists checkAddressExists unvalidatedOrder ->
+            let orderId = unvalidatedOrder.OrderId |> SimpleTypes.OrderId.create
+            let customerInfo = toCustomerInfo unvalidatedOrder.CustomerInfo
+
+            let shippingAddress: DomainApi.Address =
+                toAddress checkAddressExists unvalidatedOrder.ShippingAddress
+
+            let billingAddress: DomainApi.Address =
+                toAddress checkAddressExists unvalidatedOrder.BillingAddress
+
+            let lines =
+                unvalidatedOrder.Lines |> List.map (toValidatedOrderLine checkProductCodeExists)
+
+            let validatedOrder: ValidatedOrder =
+                { OrderId = orderId
+                  CustomerInfo = customerInfo
+                  ShippingAddress = shippingAddress
+                  BillingAddress = billingAddress
+                  Lines = lines }
+
+            validatedOrder
+
+    // ----------------------------------------
+    // パート2: ワークフローの全体像
+    // ----------------------------------------
+    let placeOrder
+        checkProductCodeExists
+        checkAddressExists
+        getProductPrice
+        createOrderAcknowledgmentLetter
+        sendOrderAcknowledgment
+        =
+        fun unvalidatedOrder ->
+            let validatedOrder =
+                unvalidatedOrder |> validateOrder checkProductCodeExists checkAddressExists
+
+            let pricedOrder = validatedOrder |> getOrder getProductPrice
+
+            let acknowledgment =
+                pricedOrder
+                |> acknowledgeOrder createOrderAcknowledgmentLetter sendOrderAcknowledgment
+
+            let events = acknowledgment |> createEvents
+
+            events
