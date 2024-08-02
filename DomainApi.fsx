@@ -66,7 +66,7 @@ module DomainApi =
           EmailAddress: SimpleTypes.EmailAddress }
 
     type PricedOrderLine =
-        { OrderLineId: SimpleTypes.OrderId
+        { OrderLineId: SimpleTypes.OrderLineId
           ProductCode: SimpleTypes.ProductCode
           Quantity: SimpleTypes.OrderQuantity
           LinePrice: SimpleTypes.Price }
@@ -87,13 +87,13 @@ module DomainApi =
           AmountToBill: SimpleTypes.BillingAmount }
 
     type OrderAcknowledgmentSent =
-        { EmailAddress: SimpleTypes.EmailAddress
-          Letter: SimpleTypes.HtmlString }
+        { OrderId: SimpleTypes.OrderId
+          EmailAddress: SimpleTypes.EmailAddress }
 
-    type PlacedOrderEvent =
+    type PlaceOrderEvent =
         | OrderPlaced of OrderPlaced
         | BillableOrderPlaced of BillableOrderPlaced
-        | OrderAcknowledgmentSent of OrderAcknowledgmentSent
+        | AcknowledgmentSent of OrderAcknowledgmentSent
 
     type CheckedAddress = CheckedAddress of UnvalidatedAddress
 
@@ -118,4 +118,4 @@ module DomainApi =
             -> CreateOrderAcknowledgmentLetter
             -> SendOrderAcknowledgment
             -> UnvalidatedOrder
-            -> PlacedOrderEvent list
+            -> PlaceOrderEvent list
