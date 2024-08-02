@@ -1,13 +1,13 @@
 #load "SimpleTypes.fsx"
 
-open System
-open SimpleTypes
-
 // ----------------------------------------
 // 呼び出し元に公開されるパブリックな型
 // https://scrapbox.io/radish-miyazaki/Modeling_Workflows_as_Pipelines#66a3222575d04f0000bcae06
 // ----------------------------------------
 module DomainApi =
+    open System
+    open SimpleTypes
+
     // ----------------------------------------
     // 入力データ
     // ----------------------------------------
